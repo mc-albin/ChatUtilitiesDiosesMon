@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "chatutilities.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ChatHudMixin",
+    "ScoreboardMixin",
+    "DiosesmonScoreboardMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
