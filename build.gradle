@@ -9,6 +9,15 @@ base {
     archivesName = project.archives_base_name
 }
 
+loom {
+    mixin {
+        // Fixed name, also written in chatutilitiesdiosesmon.mixins.json. Without the "refmap" entry
+        // the mixins cannot find Minecraft's methods outside the dev environment and the game crashes.
+        defaultRefmapName = "chatutilitiesdiosesmon-refmap.json"
+        add(sourceSets.main, "chatutilitiesdiosesmon-refmap.json")
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
