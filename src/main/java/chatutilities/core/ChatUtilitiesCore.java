@@ -190,6 +190,10 @@ public final class ChatUtilitiesCore {
             ChatHistoryStore.load(LOG, registries);
         }
         PlayerDirectory.reset();
+        // Joining a server (also when the proxy moves you to the lobby or another server, which is
+        // not a disconnect) starts outside AFK: the old AFK period belonged to the previous server.
+        afk = false;
+        afkSince = 0;
     }
 
     public static void onDisconnect() {
