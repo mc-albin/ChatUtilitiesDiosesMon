@@ -8,6 +8,7 @@ import chatutilities.core.chat.MessageType;
 import chatutilities.core.commands.ServerCommands;
 import chatutilities.core.players.PlayerHeads;
 import chatutilities.core.raids.RaidChat;
+import chatutilities.core.raids.RaidParty;
 import chatutilities.ui.Theme;
 import chatutilities.ui.widget.BubbleListView;
 import chatutilities.ui.widget.MessageListView;
@@ -79,6 +80,8 @@ public class ChatSection extends Section {
     private String target = "";
     private String pickerDraft = "";
     private boolean focusPending;
+    /** First conversation shown in the Privados list (mouse wheel over the list scrolls it). */
+    private int peerScroll;
 
     /**
      * Messages you sent from the panel, newest last, for the ↑/↓ keys (like Minecraft's chat).
@@ -239,7 +242,8 @@ public class ChatSection extends Section {
 
     @Override
     public int badge() {
-        return ChatUtilitiesCore.LOG.unreadPrivate() + ChatUtilitiesCore.LOG.unreadClan() + ChatUtilitiesCore.LOG.unreadAlly();
+        return ChatUtilitiesCore.LOG.unreadPrivate() + ChatUtilitiesCore.LOG.unreadClan() + ChatUtilitiesCore.LOG.unreadAlly()
+                + unread(View.RAIDS);
     }
 
     private int unread(View v) {
@@ -247,6 +251,7 @@ public class ChatSection extends Section {
             case CLAN -> ChatUtilitiesCore.LOG.unreadClan();
             case ALLY -> ChatUtilitiesCore.LOG.unreadAlly();
             case PRIVATE -> ChatUtilitiesCore.LOG.unreadPrivate();
+            case RAIDS -> RaidParty.invite() != null ? 1 : 0;
             default -> 0;
         };
     }
@@ -323,10 +328,22 @@ public class ChatSection extends Section {
         if (v == view) {
             return;
         }
+        menuName = null;
         view = v;
         list().toBottom();
         bubbles.toBottom();
         screen.relayout();
+    }
+
+    /** Conversation rows that fit in the Privados list. */
+    private int peerRows() {
+        return Math.max(1, (h - 20) / ROW);
+    }
+
+    /** Opens the Raids tab (key pressed while a raid invitation is open, to accept it). */
+    public void openRaids() {
+        menuName = null;
+        view = View.RAIDS;
     }
 
     /** Opens a conversation (from Raids, TP or the conversation list). */
@@ -334,6 +351,7 @@ public class ChatSection extends Section {
         if (!ChatText.validName(name)) {
             return;
         }
+        menuName = null;
         view = View.PRIVATE;
         target = name;
         pickerDraft = "";
@@ -437,11 +455,11 @@ public class ChatSection extends Section {
         long rev = ChatUtilitiesCore.LOG.revision();
         switch (view) {
             case GENERAL -> showFiltered(c, generalList, rev, ChatLog.Channel.GENERAL,
-                    e -> e.type() == MessageType.PLAYER || e.type() == MessageType.LEGENDARY);
-            case CLAN -> showFiltered(c, clanList, rev, ChatLog.Channel.CLAN, e -> !ChatLog.isAlly(e));
-            case ALLY -> showFiltered(c, allyList, rev, ChatLog.Channel.CLAN, e -> ChatLog.isAlly(e) || e.fromMe());
+                    e -> e.type() == MessageType.PLAYER || e.type() == MessageType.LEGENDARY, mouseX, mouseY);
+            case CLAN -> showFiltered(c, clanList, rev, ChatLog.Channel.CLAN, e -> !ChatLog.isAlly(e), mouseX, mouseY);
+            case ALLY -> showFiltered(c, allyList, rev, ChatLog.Channel.CLAN, e -> ChatLog.isAlly(e) || e.fromMe(), mouseX, mouseY);
             case TRADE -> showFiltered(c, tradeList, rev, ChatLog.Channel.GENERAL,
-                    e -> e.type() == MessageType.PLAYER && RaidChat.isTrade(e.body()));
+                    e -> e.type() == MessageType.PLAYER && RaidChat.isTrade(e.body()), mouseX, mouseY);
             case RAIDS -> raids.render(c, mouseX, mouseY);
             case PRIVATE -> renderPrivate(c, mouseX, mouseY, rev);
         }
@@ -459,10 +477,11 @@ public class ChatSection extends Section {
     }
 
     private void showFiltered(DrawContext c, MessageListView list, long rev, ChatLog.Channel channel,
-                              Predicate<ChatEntry> rule) {
+                              Predicate<ChatEntry> rule, int mouseX, int mouseY) {
         List<ChatEntry> entries = filter(rev, channel, rule);
         list.setEmptyText(words().length > 0 ? NO_RESULTS : "");
-        list.render(c, tr, filtered.get(view).key, entries);
+        boolean free = menuName == null;
+        list.render(c, tr, filtered.get(view).key, entries, free ? mouseX : Integer.MIN_VALUE, free ? mouseY : Integer.MIN_VALUE);
     }
 
     private void renderPrivate(DrawContext c, int mouseX, int mouseY, long rev) {
@@ -470,7 +489,19 @@ public class ChatSection extends Section {
         c.fill(x + PEERS + 3, y, x + PEERS + 4, y + h, Theme.BORDER);
         List<String> peers = ChatUtilitiesCore.LOG.peers();
         int ry = y + 20;
-        for (String p : peers) {
+        int visibleRows = peerRows();
+        peerScroll = Math.max(0, Math.min(peerScroll, peers.size() - visibleRows));
+        if (peers.size() > visibleRows) {
+            // Scroll bar on the right edge of the list.
+            int trackY = y + 20;
+            int trackH = visibleRows * ROW;
+            int thumb = Math.max(10, trackH * visibleRows / peers.size());
+            int pos = (int) ((long) (trackH - thumb) * peerScroll / Math.max(1, peers.size() - visibleRows));
+            Theme.round(c, x + PEERS + 1, trackY, 2, trackH, 1, Theme.withAlpha(Theme.BORDER, 0x80));
+            Theme.round(c, x + PEERS + 1, trackY + pos, 2, thumb, 1, Theme.BORDER_STRONG);
+        }
+        for (int pi = peerScroll; pi < peers.size(); pi++) {
+            String p = peers.get(pi);
             if (ry + ROW > y + h) {
                 break;
             }
@@ -508,8 +539,90 @@ public class ChatSection extends Section {
         bubbles.render(c, tr, filtered.get(view).key, entries);
     }
 
+    // ---- player name menu (right click on a name) ----
+
+    private static final int MENU_W = 136;
+    private static final int MENU_H = 66;
+    private static final int MENU_BTN_H = 16;
+    private static final String[] MENU_LABELS = {"TP", "Pagar", "Privado", "Invitar raid"};
+    /** Player whose menu is open, or null. */
+    private String menuName;
+    private int menuX;
+    private int menuY;
+
+    private void openMenu(String name, double mx, double my) {
+        menuName = name;
+        menuX = (int) Math.max(x, Math.min(mx + 2, x + w - MENU_W));
+        menuY = (int) Math.max(y, Math.min(my + 2, y + h - MENU_H));
+    }
+
+    private int menuButtonAt(double mx, double my) {
+        int bw = (MENU_W - 16) / 2;
+        for (int i = 0; i < MENU_LABELS.length; i++) {
+            int bx = menuX + 6 + (i % 2) * (bw + 4);
+            int by = menuY + 24 + (i / 2) * (MENU_BTN_H + 4);
+            if (mx >= bx && mx < bx + bw && my >= by && my < by + MENU_BTN_H) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int menuColor(int i) {
+        return switch (i) {
+            case 0 -> Theme.SUCCESS;
+            case 1 -> Theme.GOLD;
+            case 2 -> MessageType.PRIVATE_IN.color;
+            default -> Theme.WARN;
+        };
+    }
+
+    private void renderMenu(DrawContext c, int mouseX, int mouseY) {
+        c.getMatrices().push();
+        c.getMatrices().translate(0, 0, 400);
+        Theme.round(c, menuX + 1, menuY + 2, MENU_W, MENU_H, Theme.R_PANEL, Theme.withAlpha(0, 0x50));
+        Theme.box(c, menuX, menuY, MENU_W, MENU_H, Theme.R_PANEL, Theme.withAlpha(Theme.BASE, 0xF4),
+                Theme.withAlpha(Theme.ACCENT, 0xA0));
+        PlayerSkinDrawer.draw(c, PlayerHeads.get(menuName), menuX + 7, menuY + 6, 12);
+        c.drawText(tr, tr.trimToWidth(menuName, MENU_W - 40), menuX + 24, menuY + 8, Theme.TEXT, false);
+        boolean onClose = mouseX >= menuX + MENU_W - 16 && mouseX < menuX + MENU_W && mouseY >= menuY && mouseY < menuY + 20;
+        c.drawText(tr, "✕", menuX + MENU_W - 12, menuY + 7, onClose ? Theme.DANGER : Theme.FAINT, false);
+        c.fill(menuX + 6, menuY + 21, menuX + MENU_W - 6, menuY + 22, Theme.BORDER);
+        int hover = menuButtonAt(mouseX, mouseY);
+        int bw = (MENU_W - 16) / 2;
+        for (int i = 0; i < MENU_LABELS.length; i++) {
+            int bx = menuX + 6 + (i % 2) * (bw + 4);
+            int by = menuY + 24 + (i / 2) * (MENU_BTN_H + 4);
+            int accent = menuColor(i);
+            boolean on = hover == i;
+            Theme.box(c, bx, by, bw, MENU_BTN_H, Theme.R_SMALL, Theme.withAlpha(accent, on ? 0x60 : 0x1C),
+                    Theme.withAlpha(accent, on ? 0xCC : 0x60));
+            String label = MENU_LABELS[i];
+            c.drawText(tr, label, bx + (bw - tr.getWidth(label)) / 2, by + 4, on ? Theme.BRIGHT : Theme.MUTED, false);
+        }
+        c.getMatrices().pop();
+    }
+
+    /** Runs the menu option: TP request, Pagos with the name filled in, private chat or raid invite. */
+    private void menuAction(int i, String name) {
+        menuName = null;
+        switch (i) {
+            case 0 -> tpa(name);
+            case 1 -> screen.openPay(name);
+            case 2 -> {
+                openPrivate(name);
+                screen.relayout();
+            }
+            default -> raids.invite(name);
+        }
+    }
+
     @Override
     public void renderOverlay(DrawContext c, int mouseX, int mouseY, float delta) {
+        if (menuName != null) {
+            renderMenu(c, mouseX, mouseY);
+            return;
+        }
         if (view == View.RAIDS) {
             raids.picker().renderOverlay(c, tr, mouseX, mouseY);
         } else if (picker != null) {
@@ -521,6 +634,22 @@ public class ChatSection extends Section {
 
     @Override
     public boolean overlayClicked(double mx, double my, int button) {
+        if (menuName != null) {
+            String name = menuName;
+            boolean inside = mx >= menuX && mx < menuX + MENU_W && my >= menuY && my < menuY + MENU_H;
+            if (!inside) {
+                // A click outside closes the menu and still goes through (right click on another name).
+                menuName = null;
+                return false;
+            }
+            int i = button == 0 ? menuButtonAt(mx, my) : -1;
+            if (i >= 0) {
+                menuAction(i, name);
+            } else if (button == 0 && mx >= menuX + MENU_W - 16 && my < menuY + 20) {
+                menuName = null;
+            }
+            return true;
+        }
         if (view == View.RAIDS) {
             return raids.picker().mouseClicked(mx, my);
         }
@@ -535,11 +664,23 @@ public class ChatSection extends Section {
         if (view == View.PRIVATE ? bubbles.clickJump(mx, my) : list().clickJump(mx, my)) {
             return true;
         }
+        if (button == 1 && view != View.PRIVATE) {
+            ChatEntry e = list().nameAt(mx, my);
+            if (e != null && ChatText.validName(e.sender()) && !e.sender().equalsIgnoreCase(ChatUtilitiesCore.self())) {
+                openMenu(e.sender(), mx, my);
+                return true;
+            }
+            return false;
+        }
         int listTop = y + 20;
         if (view != View.PRIVATE || mx < x || mx >= x + PEERS || my < listTop) {
             return false;
         }
-        int index = (int) ((my - listTop) / ROW);
+        int row = (int) ((my - listTop) / ROW);
+        if (row >= peerRows()) {
+            return false;
+        }
+        int index = row + peerScroll;
         List<String> peers = ChatUtilitiesCore.LOG.peers();
         if (index < 0 || index >= peers.size()) {
             return false;
@@ -561,6 +702,11 @@ public class ChatSection extends Section {
             return raids.mouseScrolled(mx, my, amount);
         }
         if (view == View.PRIVATE) {
+            if (mx >= x && mx < x + PEERS + 4 && my >= y + 20 && my < y + h) {
+                int max = Math.max(0, ChatUtilitiesCore.LOG.peers().size() - peerRows());
+                peerScroll = Math.max(0, Math.min(max, peerScroll - (int) Math.signum(amount) * 2));
+                return true;
+            }
             return bubbles.scroll(mx, my, amount);
         }
         return list().scroll(mx, my, amount);
@@ -568,6 +714,10 @@ public class ChatSection extends Section {
 
     @Override
     public boolean keyPressed(int key, int scan, int modifiers) {
+        if (menuName != null && key == GLFW.GLFW_KEY_ESCAPE) {
+            menuName = null;
+            return true;
+        }
         if (picker != null && picker.keyPressed(key)) {
             return true;
         }

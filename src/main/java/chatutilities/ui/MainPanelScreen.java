@@ -1,6 +1,7 @@
 package chatutilities.ui;
 
 import chatutilities.core.ChatUtilitiesCore;
+import chatutilities.core.chat.ChatEntry;
 import chatutilities.core.commands.ServerCommands;
 import chatutilities.core.config.ModConfig;
 import chatutilities.hud.HudOverlay;
@@ -82,23 +83,41 @@ public class MainPanelScreen extends ScaledScreen {
     }
 
     /**
-     * Panel opened with the key: straight to TP while a TP notice is on screen, straight to the
-     * conversation while a private-message notice is on screen, otherwise the last section.
+     * Panel opened with the key: straight to TP while a TP notice is on screen, then to the Raids
+     * tab while a raid invitation is open, then to the conversation with unread private messages
+     * (even after its notice is gone), otherwise the last section.
      */
     public static MainPanelScreen openFromKey(KeyBinding key) {
         MainPanelScreen s = new MainPanelScreen(key);
         long now = System.currentTimeMillis();
         long window = ModConfig.get().notificationSeconds * 1000L;
+        ChatSection chat = null;
+        for (Section sec : sections) {
+            if (sec instanceof ChatSection c) {
+                chat = c;
+            }
+        }
         if (!ChatUtilitiesCore.TELEPORTS.pending().isEmpty() && now - ChatUtilitiesCore.lastTpNotice < window + 3000L) {
             s.current = sections.stream().filter(x -> x.id().equals("tp")).findFirst().orElse(s.current);
-        } else if (ChatUtilitiesCore.lastMessageNotice != null && now - ChatUtilitiesCore.lastMessageNoticeAt < window + 3000L
-                && ChatUtilitiesCore.LOG.unreadPrivate() > 0) {
-            String peer = ChatUtilitiesCore.lastMessageNotice.peer();
-            for (Section sec : sections) {
-                if (sec instanceof ChatSection chat) {
-                    chat.openPrivate(peer);
-                    s.current = chat;
+        } else if (chat != null && chatutilities.core.raids.RaidParty.invite() != null) {
+            chat.openRaids();
+            s.current = chat;
+        } else if (chat != null && ChatUtilitiesCore.LOG.unreadPrivate() > 0) {
+            String peer = null;
+            ChatEntry last = ChatUtilitiesCore.lastMessageNotice;
+            if (last != null && ChatUtilitiesCore.LOG.unreadPrivate(last.peer()) > 0) {
+                peer = last.peer();
+            } else {
+                for (String p : ChatUtilitiesCore.LOG.peers()) {
+                    if (ChatUtilitiesCore.LOG.unreadPrivate(p) > 0) {
+                        peer = p;
+                        break;
+                    }
                 }
+            }
+            if (peer != null) {
+                chat.openPrivate(peer);
+                s.current = chat;
             }
         }
         return s;
@@ -136,6 +155,21 @@ public class MainPanelScreen extends ScaledScreen {
                 chat.openPrivate(name);
                 if (current != chat) {
                     select(chat);
+                } else {
+                    clearAndInit();
+                }
+                return;
+            }
+        }
+    }
+
+    /** Opens Pagos with this player already in the name field (used by the chat name menu). */
+    public void openPay(String name) {
+        for (Section s : sections) {
+            if (s instanceof PaySection pay) {
+                pay.prefill(name);
+                if (current != pay) {
+                    select(pay);
                 } else {
                     clearAndInit();
                 }
@@ -200,7 +234,7 @@ public class MainPanelScreen extends ScaledScreen {
         var us = chatutilities.core.update.Updater.state();
         if (us == chatutilities.core.update.Updater.State.AVAILABLE || us == chatutilities.core.update.Updater.State.DOWNLOADING
                 || us == chatutilities.core.update.Updater.State.READY || us == chatutilities.core.update.Updater.State.ERROR) {
-            int uw = 124;
+            int uw = 76;
             int ux = bx - 6 - 140 - 22 - uw;
             updateButton = addDrawableChild(new UiButton(ux, bodyY + 3, uw, 16, "", UiButton.Style.ACCENT,
                     chatutilities.core.update.Updater::downloadAsync));
@@ -221,7 +255,7 @@ public class MainPanelScreen extends ScaledScreen {
         String v = chatutilities.core.update.Updater.latestVersion();
         switch (chatutilities.core.update.Updater.state()) {
             case AVAILABLE -> {
-                updateButton.setLabel("⬇ Actualizar a " + v);
+                updateButton.setLabel("⬇ v" + v);
                 updateButton.setStyle(UiButton.Style.ACCENT);
                 updateButton.active = true;
                 String n = chatutilities.core.update.Updater.notes();
@@ -229,17 +263,17 @@ public class MainPanelScreen extends ScaledScreen {
                         + ")" + (n.isEmpty() ? "" : "\n" + n) + "\nSe descarga ahora y se instala al cerrar el juego.");
             }
             case DOWNLOADING -> {
-                updateButton.setLabel("Descargando…");
+                updateButton.setLabel("⬇ …");
                 updateButton.active = false;
             }
             case READY -> {
-                updateButton.setLabel("✔ Lista: cierra el juego");
+                updateButton.setLabel("✔ Reinicia");
                 updateButton.setStyle(UiButton.Style.SUCCESS);
                 updateButton.active = true;
                 updateButton.tooltip("La versión " + v + " se instala al cerrar Minecraft.");
             }
             case ERROR -> {
-                updateButton.setLabel("Reintentar actualización");
+                updateButton.setLabel("↻ Reintentar");
                 updateButton.setStyle(UiButton.Style.DANGER);
                 updateButton.active = true;
                 updateButton.tooltip(chatutilities.core.update.Updater.error());
@@ -359,6 +393,10 @@ public class MainPanelScreen extends ScaledScreen {
 
     @Override
     public void tick() {
+        if (updateButton == null
+                && chatutilities.core.update.Updater.state() == chatutilities.core.update.Updater.State.AVAILABLE) {
+            clearAndInit();
+        }
         refreshQuick();
         current.tick();
     }

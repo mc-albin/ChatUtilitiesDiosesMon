@@ -89,6 +89,59 @@ public final class HudOverlay {
         return rect(cfg.msgX, cfg.msgY, toastBoxW(), toastBoxH(), sw, sh);
     }
 
+    // ---- fixed "pending" pill: unread private messages, stays until they are read ----
+
+    public static final int PEND_H = 16;
+
+    public static String pendingText(int count) {
+        String key = panelKey == null ? "G" : panelKey.getBoundKeyLocalizedText().getString();
+        return count + (count == 1 ? " privado pendiente" : " privados pendientes") + " \u00b7 " + key;
+    }
+
+    public static int pendingW(TextRenderer tr, int count) {
+        return tr.getWidth(pendingText(count)) + 24;
+    }
+
+    /** Player who sent the newest unread private message, or null. */
+    public static String pendingSender() {
+        ChatEntry last = ChatUtilitiesCore.lastMessageNotice;
+        if (last != null && ChatUtilitiesCore.LOG.unreadPrivate(last.peer()) > 0) {
+            return last.peer();
+        }
+        for (String p : ChatUtilitiesCore.LOG.peers()) {
+            if (ChatUtilitiesCore.LOG.unreadPrivate(p) > 0) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    public static int[] pendingRect(int sw, int sh, int w) {
+        ModConfig cfg = ModConfig.get();
+        return rect(cfg.pendX, cfg.pendY, w, PEND_H, sw, sh);
+    }
+
+    /**
+     * Box with slightly rounded corners, the head of the newest sender and "3 privados pendientes \u00b7 G"; a thin
+     * pulsing bar on the left draws the eye.
+     */
+    public static void drawPending(DrawContext c, TextRenderer tr, int x, int y, int count, String sender, float alpha) {
+        int a = Math.round(alpha * 255);
+        int w = pendingW(tr, count);
+        int color = MessageType.PRIVATE_IN.color;
+        Theme.round(c, x + 1, y + 2, w, PEND_H, Theme.R_SMALL, Theme.withAlpha(0, (int) (a * 0.3f)));
+        Theme.box(c, x, y, w, PEND_H, Theme.R_SMALL, Theme.withAlpha(Theme.BASE, (int) (a * 0.9f)),
+                Theme.withAlpha(color, (int) (a * 0.75f)));
+        double pulse = 0.45 + 0.55 * Math.abs(Math.sin(System.currentTimeMillis() / 400.0));
+        c.fill(x + 2, y + 3, x + 4, y + PEND_H - 3, Theme.withAlpha(color, (int) (a * pulse)));
+        if (alpha > 0.4f && sender != null) {
+            PlayerSkinDrawer.draw(c, chatutilities.core.players.PlayerHeads.get(sender), x + 6, y + 4, 8);
+        }
+        if (a >= 30) {
+            c.drawText(tr, pendingText(count), x + 18, y + 4, Theme.withAlpha(Theme.TEXT, a), false);
+        }
+    }
+
     /** Height of the clan anchor slot (the newest message sits here), after the scale. */
     public static int clanHeight() {
         return Math.round(TOAST_H * clanScale());
@@ -150,14 +203,17 @@ public final class HudOverlay {
         List<TeleportTracker.Request> pending = ChatUtilitiesCore.TELEPORTS.pending();
         boolean tpShown = cfg.tpNotifications && !pending.isEmpty() && now - ChatUtilitiesCore.lastTpNotice < window;
         RaidParty.Invite invite = RaidParty.invite();
-        long raidWindow = Math.max(window, 12_000L);
-        if (invite != null && now - RaidParty.inviteNoticeAt() < raidWindow) {
+        // Stays until the invitation is accepted or expires (90 s), with a countdown.
+        long raidWindow = RaidParty.INVITE_MS;
+        if (cfg.raidInviteNotice && invite != null && now - invite.time() < raidWindow) {
             int[] r = tpRect(sw, sh);
             String what = invite.stars() + "★" + (invite.pokemon().isEmpty() ? "" : " " + invite.pokemon());
+            long left = Math.max(0, (raidWindow - (now - invite.time())) / 1000);
+            String key = panelKey == null ? "" : panelKey.getBoundKeyLocalizedText().getString();
             drawSlideToast(c, mc.textRenderer, r[0], r[1] + (tpShown ? tpBoxH() + 6 : 0), toastW(), tpScale(), Theme.GOLD,
                     "INVITACIÓN A RAID · " + invite.from(),
-                    what + (hint.isEmpty() ? "" : " · " + hint.replace("responder", "aceptar")),
-                    invite.from(), now - RaidParty.inviteNoticeAt(), raidWindow);
+                    what + (key.isEmpty() ? "" : " · Pulsa " + key + " para aceptar") + " · " + left + "s",
+                    invite.from(), now - RaidParty.inviteNoticeAt(), raidWindow - (RaidParty.inviteNoticeAt() - invite.time()));
         }
         if (tpShown) {
             TeleportTracker.Request last = pending.get(pending.size() - 1);
@@ -181,6 +237,12 @@ public final class HudOverlay {
                 drawSlideToast(c, mc.textRenderer, r[0], r[1], msg.type().color, title, msg.body(), msg.sender(),
                         now - ChatUtilitiesCore.lastMessageNoticeAt, window);
             }
+        }
+
+        int pendingCount = ChatUtilitiesCore.LOG.unreadPrivate();
+        if (cfg.pendingPill && pendingCount > 0) {
+            int[] r = pendingRect(sw, sh, pendingW(mc.textRenderer, pendingCount));
+            drawPending(c, mc.textRenderer, r[0], r[1], pendingCount, pendingSender(), 1f);
         }
 
     }
@@ -220,8 +282,8 @@ public final class HudOverlay {
             return;
         }
         String key = panelKey == null ? "H" : panelKey.getBoundKeyLocalizedText().getString();
-        topLeftCard(c, tr, "☀ ChatUtilities DiosesMon " + chatutilities.core.update.Updater.latestVersion() + " disponible",
-                "Pulsa " + key + " y luego \"Actualizar\"", age, new ItemStack(Items.EMERALD));
+        topLeftCard(c, tr, "⬇ v" + chatutilities.core.update.Updater.latestVersion(),
+                "Pulsa " + key, age, new ItemStack(Items.EMERALD));
     }
 
     /** Card that slides in from the left at the top-left corner and fades out (welcome, update). */
@@ -371,7 +433,9 @@ public final class HudOverlay {
         for (ChatEntry e : ChatUtilitiesCore.LOG.tail(ChatLog.Channel.CLAN, 20)) {
             // Only fresh messages, each once. Anything older than 30 s is never queued, so
             // forgetting old entries below can never bring a message back (that caused a loop).
-            if (e.time() >= clanSince && now - e.time() < 30_000L && clanSeen.add(e)) {
+            // Your own clan/alliance messages are never shown on screen (only in the panel).
+            boolean mine = e.fromMe() || e.sender().equalsIgnoreCase(ChatUtilitiesCore.self());
+            if (!mine && e.time() >= clanSince && now - e.time() < 30_000L && clanSeen.add(e)) {
                 clanWaiting.add(e);
             }
         }

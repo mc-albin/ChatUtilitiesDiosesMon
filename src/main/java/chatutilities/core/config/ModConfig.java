@@ -26,6 +26,10 @@ public final class ModConfig {
     public float tpY = 0.02f;
     public float msgX = 0.99f;
     public float msgY = 0.35f;
+    /** Fixed "unread private messages" pill: stays on screen until they are read. */
+    public boolean pendingPill = true;
+    public float pendX = 0.99f;
+    public float pendY = 0.22f;
     public int notificationSeconds = 6;
     /** Panel background alpha (60..255). */
     public int panelOpacity = 205;
@@ -44,6 +48,13 @@ public final class ModConfig {
     public int volumeTp = 70;
     public int volumePrivate = 70;
     public int volumeClan = 50;
+    /** Raid invitation sound, and the sound for new posts in the Raids tab (off until chosen). */
+    public String soundRaidInvite = "BELL";
+    public String soundRaidPost = "NONE";
+    public int volumeRaidInvite = 70;
+    public int volumeRaidPost = 60;
+    /** Raid invitation notice: stays on screen until accepted or expired, with the key to accept. */
+    public boolean raidInviteNotice = true;
     public String lastSection = "chat";
     /** True once the "press H to open the panel" welcome notice has been shown after installing. */
     public boolean welcomeShown = false;
@@ -115,6 +126,8 @@ public final class ModConfig {
         tpY = d.tpY;
         msgX = d.msgX;
         msgY = d.msgY;
+        pendX = d.pendX;
+        pendY = d.pendY;
         clanX = d.clanX;
         clanY = d.clanY;
     }
@@ -124,12 +137,16 @@ public final class ModConfig {
         tpY = clamp01(tpY);
         msgX = clamp01(msgX);
         msgY = clamp01(msgY);
+        pendX = clamp01(pendX);
+        pendY = clamp01(pendY);
         clanX = clamp01(clanX);
         clanY = clamp01(clanY);
         clanViewerLines = Math.max(2, Math.min(12, clanViewerLines));
         volumeTp = Math.max(0, Math.min(100, volumeTp));
         volumePrivate = Math.max(0, Math.min(100, volumePrivate));
         volumeClan = Math.max(0, Math.min(100, volumeClan));
+        volumeRaidInvite = Math.max(0, Math.min(100, volumeRaidInvite));
+        volumeRaidPost = Math.max(0, Math.min(100, volumeRaidPost));
         notificationSeconds = Math.max(1, Math.min(20, notificationSeconds));
         panelOpacity = Math.max(60, Math.min(255, panelOpacity));
         if (lastSection == null) {

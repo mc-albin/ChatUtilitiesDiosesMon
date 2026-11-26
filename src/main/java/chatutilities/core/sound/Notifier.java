@@ -44,7 +44,7 @@ public final class Notifier {
     }
 
     public enum Category {
-        TP("TP"), PRIVATE("Privados"), CLAN("Clan");
+        TP("TP"), PRIVATE("Privados"), CLAN("Clan"), RAID_INVITE("Inv. raid"), RAID_POST("Raids");
 
         public final String label;
 
@@ -62,6 +62,8 @@ public final class Notifier {
             case TP -> Tone.parse(cfg.soundTp, Tone.BELL);
             case PRIVATE -> Tone.parse(cfg.soundPrivate, Tone.PLING);
             case CLAN -> Tone.parse(cfg.soundClan, Tone.NONE);
+            case RAID_INVITE -> Tone.parse(cfg.soundRaidInvite, Tone.BELL);
+            case RAID_POST -> Tone.parse(cfg.soundRaidPost, Tone.NONE);
         };
     }
 
@@ -71,6 +73,8 @@ public final class Notifier {
             case TP -> cfg.soundTp = t.name();
             case PRIVATE -> cfg.soundPrivate = t.name();
             case CLAN -> cfg.soundClan = t.name();
+            case RAID_INVITE -> cfg.soundRaidInvite = t.name();
+            case RAID_POST -> cfg.soundRaidPost = t.name();
         }
     }
 
@@ -81,6 +85,8 @@ public final class Notifier {
             case TP -> cfg.volumeTp;
             case PRIVATE -> cfg.volumePrivate;
             case CLAN -> cfg.volumeClan;
+            case RAID_INVITE -> cfg.volumeRaidInvite;
+            case RAID_POST -> cfg.volumeRaidPost;
         };
     }
 
@@ -91,6 +97,8 @@ public final class Notifier {
             case TP -> cfg.volumeTp = value;
             case PRIVATE -> cfg.volumePrivate = value;
             case CLAN -> cfg.volumeClan = value;
+            case RAID_INVITE -> cfg.volumeRaidInvite = value;
+            case RAID_POST -> cfg.volumeRaidPost = value;
         }
     }
 

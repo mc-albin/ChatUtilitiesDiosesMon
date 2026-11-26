@@ -42,6 +42,8 @@ public final class TeleportTracker {
             "^solicitud (?:de teletransporte )?aceptada\\b.*$", FLAGS);
     private static final Pattern SENT = Pattern.compile("^solicitud enviada a (" + N + ")\\.?$", FLAGS);
     private static final Pattern THEY_ACCEPTED = Pattern.compile("^(" + N + ") acept[oó] tu solicitud\\b.*$", FLAGS);
+    /** Server reply to /tpaccept when that request no longer exists. */
+    private static final Pattern NO_VALID = Pattern.compile("^no hay solicitudes v[aá]lidas\\.?$", FLAGS);
     private static final Pattern OWN_EXPIRED = Pattern.compile(
             "^tu solicitud de teletransporte (?:ha expirado|expiró|ha caducado)\\.?$", FLAGS);
 
@@ -102,6 +104,13 @@ public final class TeleportTracker {
     private String lastOutCommand = "";
     private String lastOutNick = "";
     private long lastOutAt;
+    /**
+     * Last /tpaccept typed or clicked. The server's "Solicitud de teletransporte aceptada." has no
+     * name, so it belongs to that request; without this it closed another pending request.
+     */
+    private String lastAcceptNick = "";
+    private long lastAcceptAt;
+    private static final long ACCEPT_REPLY_MS = 5_000L;
 
     /**
      * Feeds one cleaned chat line.
@@ -121,7 +130,20 @@ public final class TeleportTracker {
             return null;
         }
         if (YOU_ACCEPTED.matcher(line).matches()) {
-            update(newestOpen(false), State.ACCEPTED);
+            if (now - lastAcceptAt < ACCEPT_REPLY_MS) {
+                // Already marked by the /tpaccept command: the other requests stay pending.
+                lastAcceptAt = 0;
+            } else {
+                update(newestOpen(false), State.ACCEPTED);
+            }
+            return null;
+        }
+        if (NO_VALID.matcher(line).matches()) {
+            if (now - lastAcceptAt < ACCEPT_REPLY_MS) {
+                // The server no longer had that request: show it as expired, not accepted.
+                update(latestIncoming(lastAcceptNick), State.EXPIRED);
+                lastAcceptAt = 0;
+            }
             return null;
         }
         m = SENT.matcher(line);
@@ -184,7 +206,12 @@ public final class TeleportTracker {
                 lastOutNick = arg;
                 lastOutAt = now;
             }
-            case "tpaccept" -> update(arg.isEmpty() ? newestOpen(false) : openFor(arg, false), State.ACCEPTED);
+            case "tpaccept" -> {
+                Request r = arg.isEmpty() ? newestOpen(false) : openFor(arg, false);
+                lastAcceptNick = r != null ? r.nick() : arg;
+                lastAcceptAt = now;
+                update(r, State.ACCEPTED);
+            }
             case "tpdeny" -> update(arg.isEmpty() ? newestOpen(false) : openFor(arg, false), State.DENIED);
             case "tpcancel" -> {
                 Request incoming = arg.isEmpty() ? newestOpen(false) : openFor(arg, false);
@@ -263,6 +290,20 @@ public final class TeleportTracker {
         for (int i = records.size() - 1; i >= 0; i--) {
             Request r = records.get(i);
             if (r.state().open() && r.kind().outgoing == outgoing && r.nick().equalsIgnoreCase(nick)) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    /** Newest incoming request from this player, whatever its state. */
+    private Request latestIncoming(String nick) {
+        if (nick == null || nick.isEmpty()) {
+            return null;
+        }
+        for (int i = records.size() - 1; i >= 0; i--) {
+            Request r = records.get(i);
+            if (!r.kind().outgoing && r.nick().equalsIgnoreCase(nick)) {
                 return r;
             }
         }

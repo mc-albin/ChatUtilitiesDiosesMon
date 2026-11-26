@@ -99,7 +99,7 @@ public final class ChatUtilitiesCore {
         checkQuickReply(clean, now);
         PAYS.onLine(clean, now);
         if (RaidParty.onLine(clean, self(), now)) {
-            Notifier.play(Notifier.Category.TP);
+            Notifier.play(Notifier.Category.RAID_INVITE);
         }
         TeleportTracker.Request request = TELEPORTS.observe(clean, now);
         if (request != null) {
@@ -129,14 +129,24 @@ public final class ChatUtilitiesCore {
                 r.tag(), r.rank(), isSelf(r.sender()) && r.type() != MessageType.PRIVATE_IN, message));
     }
 
+    private static long lastRaidPing;
+
     private static void record(ChatEntry entry) {
         if (!entry.type().isChat()) {
             return;
         }
         LOG.add(entry);
         if (!entry.fromMe()) {
+            boolean raidPost = (entry.type() == MessageType.PLAYER || entry.type() == MessageType.CLAN)
+                    && !entry.sender().isEmpty() && chatutilities.core.raids.RaidChat.raid(entry.body()) != null;
             if (entry.type() == MessageType.PRIVATE_IN) {
                 Notifier.play(Notifier.Category.PRIVATE);
+            } else if (raidPost) {
+                // A post the Raids tab picks up (same filter); at most one ping every 3 s.
+                if (entry.time() - lastRaidPing > 3000L) {
+                    lastRaidPing = entry.time();
+                    Notifier.play(Notifier.Category.RAID_POST);
+                }
             } else if (entry.type() == MessageType.CLAN) {
                 Notifier.play(Notifier.Category.CLAN);
             }
@@ -245,6 +255,7 @@ public final class ChatUtilitiesCore {
     }
 
     public static void tick() {
+        chatutilities.core.update.Updater.tick();
         if (++saveTicks >= 1200) {
             saveTicks = 0;
             if (LOG.takeDirty() && registries != null) {

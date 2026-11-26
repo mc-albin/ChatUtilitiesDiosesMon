@@ -1,5 +1,6 @@
 package chatutilities.ui;
 
+import chatutilities.core.update.Updater;
 import chatutilities.core.config.ModConfig;
 import chatutilities.core.sound.Notifier;
 import chatutilities.ui.widget.UiButton;
@@ -91,13 +92,15 @@ public class ConfigScreen extends ScaledScreen {
         int half = (bw - 4) / 2;
         ModConfig cfg = ModConfig.get();
         if (tab == Tab.ALERTS) {
-            toggle(bx, by, bw, "Notificaciones de TP", c -> c.tpNotifications, c -> c.tpNotifications = !c.tpNotifications);
+            toggle(bx, by, half, "Avisos de TP", c -> c.tpNotifications, c -> c.tpNotifications = !c.tpNotifications);
+            toggle(bx + half + 4, by, half, "Invitación raid", c -> c.raidInviteNotice, c -> c.raidInviteNotice = !c.raidInviteNotice);
             by += 22;
-            toggle(bx, by, bw, "Aviso de mensajes privados", c -> c.messageNotifications && c.notifyPrivate, c -> {
+            toggle(bx, by, half, "Aviso de privados", c -> c.messageNotifications && c.notifyPrivate, c -> {
                 boolean on = !(c.messageNotifications && c.notifyPrivate);
                 c.messageNotifications = on;
                 c.notifyPrivate = on;
             });
+            toggle(bx + half + 4, by, half, "Pendientes fijo", c -> c.pendingPill, c -> c.pendingPill = !c.pendingPill);
             by += 22;
             toggle(bx, by, half, "Visor del clan", c -> c.clanViewer, c -> c.clanViewer = !c.clanViewer);
             slider(bx + half + 4, by, half, "En pantalla", 1, 5, 1, cfg.clanMaxShown,
@@ -206,7 +209,74 @@ public class ConfigScreen extends ScaledScreen {
                 save();
             }));
         }
-        addDrawableChild(new UiButton(bx, py + ph - 28, bw, 20, "Listo", UiButton.Style.ACCENT, this::close));
+        int halfW = (bw - 4) / 2;
+        updateButton = addDrawableChild(new UiButton(bx, py + ph - 28, halfW, 20, "", UiButton.Style.NORMAL, () -> {
+            if (Updater.state() == Updater.State.AVAILABLE || Updater.state() == Updater.State.ERROR && !Updater.latestVersion().isEmpty()) {
+                Updater.downloadAsync();
+            } else {
+                Updater.checkNow();
+            }
+        }));
+        refreshUpdate();
+        addDrawableChild(new UiButton(bx + halfW + 4, py + ph - 28, bw - halfW - 4, 20, "Listo", UiButton.Style.ACCENT, this::close));
+    }
+
+    private UiButton updateButton;
+
+    /** Label of the update button, following the check and the download. */
+    private void refreshUpdate() {
+        if (updateButton == null) {
+            return;
+        }
+        boolean justChecked = Updater.manualAt() > 0 && System.currentTimeMillis() - Updater.manualAt() < 6000L;
+        String current = Updater.currentVersion();
+        updateButton.active = true;
+        updateButton.setStyle(UiButton.Style.NORMAL);
+        switch (Updater.state()) {
+            case CHECKING -> {
+                updateButton.setLabel("\u21bb Buscando\u2026");
+                updateButton.active = false;
+            }
+            case AVAILABLE -> {
+                updateButton.setLabel("\u2b07 v" + Updater.latestVersion());
+                updateButton.setStyle(UiButton.Style.ACCENT);
+            }
+            case DOWNLOADING -> {
+                updateButton.setLabel("\u2b07 \u2026");
+                updateButton.active = false;
+            }
+            case READY -> {
+                updateButton.setLabel("\u2714 Reinicia");
+                updateButton.setStyle(UiButton.Style.SUCCESS);
+                updateButton.active = false;
+            }
+            case ERROR -> {
+                updateButton.setLabel("\u21bb Reintentar");
+                updateButton.setStyle(UiButton.Style.DANGER);
+            }
+            case DISABLED -> {
+                updateButton.setLabel("\u2014");
+                updateButton.active = false;
+            }
+            default -> {
+                if (justChecked && Updater.lastCheckFailed()) {
+                    updateButton.setLabel("\u2716 Sin red");
+                    updateButton.setStyle(UiButton.Style.DANGER);
+                } else if (justChecked) {
+                    updateButton.setLabel("\u2714 Al d\u00eda");
+                    updateButton.setStyle(UiButton.Style.SUCCESS);
+                } else {
+                    updateButton.setLabel("\u21bb Buscar");
+                }
+            }
+        }
+        updateButton.tooltip("Actualizaciones \u00b7 v" + current);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        refreshUpdate();
     }
 
     private static int withChannel(int rgb, int shift, int value) {

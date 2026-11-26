@@ -14,7 +14,10 @@ public class HudEditorScreen extends Screen {
     private static final int TP = 0;
     private static final int MSG = 1;
     private static final int CLAN = 2;
-    private static final int COUNT = 3;
+    private static final int PEND = 3;
+    private static final int COUNT = 4;
+    /** Unread count shown on the pending-pill preview. */
+    private static final int PREVIEW_COUNT = 2;
     private static final int HANDLE = 7;
 
     private final Screen parent;
@@ -32,6 +35,7 @@ public class HudEditorScreen extends Screen {
         return switch (which) {
             case TP -> HudOverlay.tpRect(width, height);
             case MSG -> HudOverlay.msgRect(width, height);
+            case PEND -> HudOverlay.pendingRect(width, height, width(PEND));
             default -> HudOverlay.clanRect(width, height);
         };
     }
@@ -41,6 +45,7 @@ public class HudEditorScreen extends Screen {
         return switch (which) {
             case TP -> HudOverlay.tpBoxH();
             case MSG -> HudOverlay.toastBoxH();
+            case PEND -> HudOverlay.PEND_H;
             default -> HudOverlay.clanHeight();
         };
     }
@@ -49,6 +54,7 @@ public class HudEditorScreen extends Screen {
         return switch (which) {
             case TP -> HudOverlay.tpBoxW();
             case MSG -> HudOverlay.toastBoxW();
+            case PEND -> HudOverlay.pendingW(net.minecraft.client.MinecraftClient.getInstance().textRenderer, PREVIEW_COUNT);
             default -> HudOverlay.clanBoxW();
         };
     }
@@ -86,6 +92,9 @@ public class HudEditorScreen extends Screen {
         if (cfg.clanViewer) {
             HudOverlay.drawClanViewer(c, textRenderer, width, height, true);
         }
+        int[] pend = rect(PEND);
+        String self = client != null && client.player != null ? client.player.getGameProfile().getName() : null;
+        HudOverlay.drawPending(c, textRenderer, pend[0], pend[1], PREVIEW_COUNT, self, cfg.pendingPill ? 1f : 0.45f);
         for (int i = 0; i < COUNT; i++) {
             if (!visible(i)) {
                 continue;
@@ -95,6 +104,9 @@ public class HudEditorScreen extends Screen {
             boolean active = dragging == i || resizing == i;
             Theme.outline(c, r[0] - 2, r[1] - 2, width(i) + 4, height(i) + 4, Theme.R_PANEL + 1,
                     active ? Theme.withAlpha(Theme.ACCENT, 0xCC) : hover ? Theme.BORDER_STRONG : Theme.BORDER);
+            if (i == PEND) {
+                continue;
+            }
             int hx = r[0] + width(i) - HANDLE + 2;
             int hy = r[1] + height(i) - HANDLE + 2;
             boolean onHandle = onHandle(i, mouseX, mouseY);
@@ -112,6 +124,9 @@ public class HudEditorScreen extends Screen {
     }
 
     private boolean onHandle(int which, double mx, double my) {
+        if (which == PEND) {
+            return false;
+        }
         int[] r = rect(which);
         int hx = r[0] + width(which) - HANDLE + 2;
         int hy = r[1] + height(which) - HANDLE + 2;
@@ -187,6 +202,10 @@ public class HudEditorScreen extends Screen {
             case MSG -> {
                 cfg.msgX = fx;
                 cfg.msgY = fy;
+            }
+            case PEND -> {
+                cfg.pendX = fx;
+                cfg.pendY = fy;
             }
             default -> {
                 cfg.clanX = fx;

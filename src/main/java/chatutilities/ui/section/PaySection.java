@@ -124,6 +124,12 @@ public class PaySection extends Section {
         historyX = x + fw + 14;
     }
 
+    /** Opens the form with this player already chosen (from the chat name menu). */
+    public void prefill(String name) {
+        playerDraft = name;
+        disarm();
+    }
+
     private void addAmount(long add) {
         long current = 0;
         try {
